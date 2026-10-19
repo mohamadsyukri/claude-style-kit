@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# SessionStart hook: inject superpowers' dispatcher skill, followed by local
+# house rules that outrank it. Manual (non-plugin) install, so CLAUDE_PLUGIN_ROOT
+# is not set for us -- we point at the clone directly.
+
+set -euo pipefail
+
+PLUGIN_ROOT="${HOME}/.claude-src/superpowers"
+SKILL="${PLUGIN_ROOT}/skills/using-superpowers/SKILL.md"
+HOUSE_RULES="${HOME}/.claude/hooks/superpowers-house-rules.md"
+
+# Nothing to inject if the clone is gone -- exit silently rather than break startup.
+[ -r "$SKILL" ] || exit 0
+
+SKILL="$SKILL" HOUSE_RULES="$HOUSE_RULES" python3 - <<'PY'
+import json, os, pathlib, sys
+
+skill = pathlib.Path(os.environ["SKILL"]).read_text(encoding="utf-8")
+rules_path = pathlib.Path(os.environ["HOUSE_RULES"])
+rules = rules_path.read_text(encoding="utf-8") if rules_path.is_file() else ""
+
+context = (
+    "<EXTREMELY_IMPORTANT>\n"
+    "You have superpowers.\n\n"
+    "**Below is the full content of your 'using-superpowers' skill - your "
+    "introduction to using skills. For all other skills, use the 'Skill' tool "
+    "with the bare skill name (e.g. 'systematic-debugging').**\n\n"
+    f"{skill}\n"
+    "</EXTREMELY_IMPORTANT>\n"
+)
+
+if rules:
+    context += (
+        "\n<EXTREMELY_IMPORTANT>\n"
+        "The superpowers block above is SUBORDINATE to the following house rules. "
+        "On any conflict, the house rules win.\n\n"
+        f"{rules}\n"
+        "</EXTREMELY_IMPORTANT>\n"
+    )
+
+json.dump(
+    {"hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": context,
+    }},
+    sys.stdout,
+)
+sys.stdout.write("\n")
+PY
